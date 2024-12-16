@@ -1,88 +1,49 @@
-import os
+'''
+注意，上传文件服务器时，将model.py、best_model.pt、infer.py三个文件，
+放置于名为‘’z学'的文件夹下，上传文件夹
+'''
 import numpy as np
+import torch
+from torch import nn
+from torch.utils.data import DataLoader
+from torchvision import transforms, models
 from torchvision.datasets import ImageFolder
-from torchvision import transforms
-import h5py
-import matplotlib.pyplot as plt
-
-def load_data_from_h5(path='./datasets/cats'):
-    # 按照数据组织方式，从*.h5文件中读取字典数据
-    train_dataset = h5py.File(os.path.join(path, 'train_catvnoncat.h5'), "r")
-    # 训练集数据
-    train_set_x = train_dataset['train_set_x'][:].reshape(-1, 64 * 64 * 3).astype(np.float32) / 255.0
-    # 训练集标签
-    train_set_y = train_dataset['train_set_y'][:]
-    train_data = list(zip(train_set_x, train_set_y))
-
-    test_dataset = h5py.File(os.path.join(path, 'test_catvnoncat.h5'), "r")
-    # 测试集数据
-    test_set_x = test_dataset['test_set_x'][:].reshape(-1, 64 * 64 * 3).astype(np.float32) / 255.0
-    # 测试集标签
-    test_set_y = test_dataset['test_set_y'][:]
-    test_data = list(zip(test_set_x, test_set_y))
-    # 类型名列表
-    classes = np.array(test_dataset["list_classes"][:])
-    # 将训练数据和测试数据的标注编成行向量
-    print(f'Shape of Train Set: x--{train_set_x.shape}  y--{train_set_y.shape}')
-    print(f'Shape of Test Set: x--{test_set_x.shape}  y--{test_set_y.shape}')
-    print(classes)
-    return train_data, test_data, classes
+from sklearn.metrics import accuracy_score
+from models import *
 
 
-def load_data_from_folder(path='./datasets/cats-images'):
-    transform = transforms.Compose([transforms.ToTensor()]) #,
-                        # transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])])
-    train_data = ImageFolder(os.path.join(path, 'train'), transform=transform)
-    test_data = ImageFolder(os.path.join(path, 'test'), transform=transform)
-    return train_data, test_data, train_data.classes
+# 教师端的测试集路径
+path_img = '../datasets/cats-images/test'
+# 预训练模型文件路径，放置于'z学号'目录下。
+# 注意：是整个模型的文件，不是模型权重参数文件
+path_model = './z04222809/best_cats_model.pt'
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# 下面的语句替换为自己的transforms设置
+transform = transforms.Compose([transforms.Resize([64, 64]), transforms.ToTensor()])
 
-def save_images(path='./datasets/cats'):
-    train_dataset = h5py.File(os.path.join(path, 'train_catvnoncat.h5'), "r")
-    train_set_x = train_dataset['train_set_x'][:]
-    train_set_y = train_dataset['train_set_y'][:]
-    for i in range(train_set_y.shape[0]):
-        if train_set_y[i] == 0:
-            plt.imsave('./datasets/cats-images/train/0/'+str(i)+'.png', train_set_x[i])
-        else:
-            plt.imsave('./datasets/cats-images/train/1/'+str(i)+'.png', train_set_x[i])
-    train_dataset.close()
+#导入模型
+model = torch.load(path_model)
+# 导入测试集
+data = ImageFolder(path_img, transform=transform)
+classes = data.classes
+print(classes)
+# 上传时batch_size设置为60, 教师的测试集为60张图片
+test_data = DataLoader(data, batch_size=60, shuffle=False)
 
-    test_dataset = h5py.File(os.path.join(path, 'test_catvnoncat.h5'), "r")
-    test_set_x = test_dataset['test_set_x'][:]
-    test_set_y = test_dataset['test_set_y'][:]
-    for i in range(test_set_y.shape[0]):
-        if test_set_y[i] == 0:
-            plt.imsave('./datasets/cats-images/test/0/'+str(i)+'.png', test_set_x[i])
-        else:
-            plt.imsave('./datasets/cats-images/test/1/'+str(i)+'.png', test_set_x[i])
+# 开始测试
+model.to(device)
+model.eval()
 
-    # 类型名列表
-    classes = np.array(test_dataset["list_classes"][:])
-    test_dataset.close()
-    with open('./datasets/cats-images/classes.txt', 'w') as f:
-        f.write(str(list(classes)))
-
-
-import cv2
-def data_augument(path='./datasets/cats-images/train/1'):
-    base = 300
-    for file in os.listdir(path):
-        img = cv2.imread(os.path.join(path, file))
-        n = np.random.randint(0,2)
-        img = cv2.flip(img, n)
-        cv2.imwrite(os.path.join(path,str(base)+'.png'), img)
-        base += 1
+with torch.no_grad():
+    x, y = next(iter(test_data))
+    x = x.to(device)
+    out = model(x)
+    
+    # 使用Sigmoid输出的阈值判断
+    predicts = torch.gt(out, 0.5).squeeze()
+    
+    acc = accuracy_score(y.cpu(), predicts.cpu())
+    print(f'Test Accuracy: {acc*100.0:.2f}%')
 
 
-def draw_metrics(train_loss, test_loss, test_acc):
-    plt.subplot(121, title='Loss')
-    plt.plot(range(len(train_loss)), train_loss, color='blue', label='Train Loss')
-    plt.plot(range(len(train_loss)), test_loss, color='red', label='Test Loss')
-    plt.legend()
-    plt.subplot(122, title='Test Accuracy')
-    plt.plot(range(len(test_acc)), test_acc, color='r')
-    plt.show()
 
-
-if __name__ == '__main__':
-    data_augument()

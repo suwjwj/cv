@@ -10,6 +10,8 @@ def train(model, train_loader, test_loader, loss_func, optimizer, epochs):
     test_losses = []
     test_acc = []
     min_loss = 1e10
+    patience = 10  # 早停耐心值
+    counter = 0    # 计数器
     
     print(f"Starting training for {epochs} epochs...")
     for epoch in range(epochs):
@@ -53,12 +55,20 @@ def train(model, train_loader, test_loader, loss_func, optimizer, epochs):
         current_acc = acc/num
         test_acc.append(current_acc)
         
-        print(f"\rEpoch [{epoch+1}/{epochs}] Train Loss: {lss:.4f} Test Loss: {test_loss:.4f} Test Acc: {current_acc:.4f}")
-        
+        # 在评估部分添加早停逻辑
         if test_loss < min_loss:
             min_loss = test_loss
-            torch.save(model, './best_cats_model.pth')
+            counter = 0
+            torch.save(model, './best_cats_model.pt')
             print(f"Saved new best model with test loss: {test_loss:.4f}")
+        else:
+            counter += 1
+            
+        if counter >= patience:
+            print(f"Early stopping triggered after {epoch+1} epochs")
+            break
+            
+        print(f"\rEpoch [{epoch+1}/{epochs}] Train Loss: {lss:.4f} Test Loss: {test_loss:.4f} Test Acc: {current_acc:.4f}")
 
     return train_losses, test_losses, test_acc
 
@@ -75,7 +85,7 @@ if __name__ == '__main__':
     print("-" * 50)
     
     batch_size = 32
-    epochs = 200
+    epochs = 100
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=True)
     test_loader = DataLoader(test_data, batch_size=50)
     
@@ -87,7 +97,9 @@ if __name__ == '__main__':
     print("-" * 50)
     
     loss_func = nn.BCELoss()
-    optimizer = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=10.0)
+    optimizer = optim.AdamW(model.parameters(), 
+                           lr=0.00005,  # 降低学习率
+                           weight_decay=1.0)  # 降低权重衰减
     
     print("Model Architecture:")
     print(model)
